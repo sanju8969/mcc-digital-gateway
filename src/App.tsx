@@ -22,6 +22,7 @@ import NotFound from "./pages/NotFound";
 // Admin pages
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import AdminLogin from "./pages/admin/AdminLogin";
+import AdminResetPassword from "./pages/admin/AdminResetPassword";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminNotices from "./pages/admin/AdminNotices";
 import AdminEvents from "./pages/admin/AdminEvents";
@@ -57,6 +58,7 @@ const App = () => (
 
             {/* Admin Routes */}
             <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/reset-password" element={<AdminResetPassword />} />
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminDashboard />} />
               <Route path="notices" element={<AdminNotices />} />
