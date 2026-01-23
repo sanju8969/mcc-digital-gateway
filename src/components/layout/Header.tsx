@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Phone, Mail, ChevronDown } from "lucide-react";
+import { Menu, X, Phone, Mail, ChevronDown, LogIn } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { label: "Home", path: "/" },
@@ -36,8 +37,17 @@ export function Header() {
               <span className="hidden sm:inline">chatramodelcollege@gmail.com</span>
             </a>
           </div>
-          <div className="text-xs opacity-80">
-            Affiliated to Vinoba Bhave University, Hazaribagh
+          <div className="flex items-center gap-4">
+            <span className="text-xs opacity-80 hidden md:inline">
+              Affiliated to Vinoba Bhave University, Hazaribagh
+            </span>
+            <Link 
+              to="/admin/login" 
+              className="flex items-center gap-1 text-xs hover:text-accent transition-colors bg-primary-foreground/10 px-2 py-1 rounded"
+            >
+              <LogIn className="w-3 h-3" />
+              <span>Admin</span>
+            </Link>
           </div>
         </div>
       </div>

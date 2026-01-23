@@ -19,8 +19,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// This is a mock implementation - replace with your actual API calls
-const API_BASE_URL = '/api'; // Replace with your actual API URL
+// API Base URL from environment variable
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -45,20 +45,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string; requiresOtp?: boolean }> => {
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch(`${API_BASE_URL}/auth/login`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ email, password }),
-      // });
-      // const data = await response.json();
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
 
-      // Mock implementation for demo
-      if (email && password.length >= 6) {
+      if (response.ok && data.requiresOtp) {
         setPendingEmail(email);
         return { success: true, requiresOtp: true };
+      } else if (response.ok) {
+        // Direct login without OTP
+        localStorage.setItem('admin_token', data.token);
+        localStorage.setItem('admin_user', JSON.stringify(data.user));
+        setUser(data.user);
+        return { success: true };
       }
-      return { success: false, error: 'Invalid credentials' };
+      return { success: false, error: data.message || 'Invalid credentials' };
     } catch (error) {
       return { success: false, error: 'Network error. Please try again.' };
     }
@@ -66,32 +70,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyOtp = async (otp: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ email: pendingEmail, otp }),
-      // });
-      // const data = await response.json();
+      const response = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: pendingEmail, otp }),
+      });
+      const data = await response.json();
 
-      // Mock implementation for demo - accept any 6-digit OTP
-      if (otp.length === 6 && pendingEmail) {
-        const mockUser: User = {
-          id: '1',
-          email: pendingEmail,
-          name: 'Admin User',
-          role: 'admin',
-        };
-        const mockToken = 'mock_jwt_token_' + Date.now();
-        
-        localStorage.setItem('admin_token', mockToken);
-        localStorage.setItem('admin_user', JSON.stringify(mockUser));
-        setUser(mockUser);
+      if (response.ok && data.token) {
+        localStorage.setItem('admin_token', data.token);
+        localStorage.setItem('admin_user', JSON.stringify(data.user));
+        setUser(data.user);
         setPendingEmail(null);
-        
         return { success: true };
       }
-      return { success: false, error: 'Invalid OTP' };
+      return { success: false, error: data.message || 'Invalid OTP' };
     } catch (error) {
       return { success: false, error: 'Network error. Please try again.' };
     }
@@ -106,19 +99,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const forgotPassword = async (email: string): Promise<{ success: boolean; error?: string }> => {
     try {
-      // TODO: Replace with actual API call
-      // const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ email }),
-      // });
-      // const data = await response.json();
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
 
-      // Mock implementation
-      if (email.includes('@')) {
+      if (response.ok) {
         return { success: true };
       }
-      return { success: false, error: 'Invalid email address' };
+      return { success: false, error: data.message || 'Failed to send reset link' };
     } catch (error) {
       return { success: false, error: 'Network error. Please try again.' };
     }
