@@ -22,6 +22,20 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // API Base URL from environment variable
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+// Demo mode credentials (for testing when backend is not available)
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+const DEMO_CREDENTIALS = {
+  email: 'admin@mcc.edu.in',
+  password: 'Admin@123',
+  otp: '123456',
+};
+const DEMO_USER: User = {
+  id: 'demo-admin-001',
+  email: 'admin@mcc.edu.in',
+  name: 'Admin User',
+  role: 'admin',
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,6 +58,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string; requiresOtp?: boolean }> => {
+    // Demo mode: simulate API response
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 800)); // Simulate network delay
+      if (email === DEMO_CREDENTIALS.email && password === DEMO_CREDENTIALS.password) {
+        setPendingEmail(email);
+        return { success: true, requiresOtp: true };
+      }
+      return { success: false, error: 'Invalid credentials. Demo: admin@mcc.edu.in / Admin@123' };
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
@@ -69,6 +93,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const verifyOtp = async (otp: string): Promise<{ success: boolean; error?: string }> => {
+    // Demo mode: simulate OTP verification
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 600)); // Simulate network delay
+      if (otp === DEMO_CREDENTIALS.otp) {
+        const demoToken = 'demo-jwt-token-' + Date.now();
+        localStorage.setItem('admin_token', demoToken);
+        localStorage.setItem('admin_user', JSON.stringify(DEMO_USER));
+        setUser(DEMO_USER);
+        setPendingEmail(null);
+        return { success: true };
+      }
+      return { success: false, error: 'Invalid OTP. Demo OTP: 123456' };
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
         method: 'POST',
@@ -98,6 +136,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const forgotPassword = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    // Demo mode: simulate forgot password
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      if (email === DEMO_CREDENTIALS.email) {
+        return { success: true };
+      }
+      return { success: false, error: 'Email not found. Demo email: admin@mcc.edu.in' };
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
         method: 'POST',
