@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -30,12 +29,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Edit, Trash2, Upload, FileText, ClipboardList, Calendar } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, FileText, ClipboardList, Calendar, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
 interface ExamNotice {
   id: string;
@@ -46,7 +45,7 @@ interface ExamNotice {
   description?: string;
 }
 
-const initialExams: ExamNotice[] = [
+const demoExams: ExamNotice[] = [
   { id: "1", title: "End Semester Examination Notice - May 2024", type: "notice", date: "2024-04-15", pdfUrl: "#" },
   { id: "2", title: "BA/BSc/BCom Semester 4 Exam Schedule", type: "schedule", date: "2024-04-10", pdfUrl: "#" },
   { id: "3", title: "Examination Form - Semester 4", type: "form", date: "2024-04-05", pdfUrl: "#" },
@@ -60,8 +59,12 @@ const examTypes = [
   { value: "form", label: "Exam Form" },
 ];
 
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminExamination() {
-  const [exams, setExams] = useState<ExamNotice[]>(initialExams);
+  const [exams, setExams] = useState<ExamNotice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -75,6 +78,29 @@ export default function AdminExamination() {
     description: "",
     pdfFile: null as File | null,
   });
+
+  useEffect(() => {
+    fetchExams();
+  }, []);
+
+  const fetchExams = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setExams(demoExams);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await api.examination.getAll();
+    if (error) {
+      toast.error("Failed to fetch examination entries");
+      setExams(demoExams);
+    } else {
+      setExams(data as ExamNotice[] || []);
+    }
+    setLoading(false);
+  };
 
   const filteredExams = exams.filter((exam) => {
     const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -105,36 +131,89 @@ export default function AdminExamination() {
     setIsDialogOpen(true);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.title) {
       toast.error("Please enter a title");
       return;
     }
 
-    if (editingExam) {
-      setExams(exams.map(e =>
-        e.id === editingExam.id
-          ? { ...e, ...formData }
-          : e
-      ));
-      toast.success("Examination entry updated successfully");
-    } else {
-      const newExam: ExamNotice = {
-        id: Date.now().toString(),
-        ...formData,
-        pdfUrl: formData.pdfFile ? "#" : undefined,
-      };
-      setExams([newExam, ...exams]);
-      toast.success("Examination entry added successfully");
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingExam) {
+        setExams(exams.map(e =>
+          e.id === editingExam.id
+            ? { ...e, ...formData }
+            : e
+        ));
+        toast.success("Examination entry updated successfully");
+      } else {
+        const newExam: ExamNotice = {
+          id: Date.now().toString(),
+          ...formData,
+          pdfUrl: formData.pdfFile ? "#" : undefined,
+        };
+        setExams([newExam, ...exams]);
+        toast.success("Examination entry added successfully");
+      }
+      setIsDialogOpen(false);
+      setSubmitting(false);
+      return;
     }
-    setIsDialogOpen(false);
+
+    const payload = {
+      title: formData.title,
+      type: formData.type,
+      date: formData.date,
+      description: formData.description,
+    };
+
+    if (editingExam) {
+      const { error } = await api.examination.update(editingExam.id, payload);
+      if (error) {
+        toast.error("Failed to update examination entry");
+      } else {
+        await fetchExams();
+        toast.success("Examination entry updated successfully");
+        setIsDialogOpen(false);
+      }
+    } else {
+      const { error } = await api.examination.create(payload);
+      if (error) {
+        toast.error("Failed to add examination entry");
+      } else {
+        await fetchExams();
+        toast.success("Examination entry added successfully");
+        setIsDialogOpen(false);
+      }
+    }
+    setSubmitting(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deletingExam) return;
-    setExams(exams.filter(e => e.id !== deletingExam.id));
-    toast.success("Examination entry deleted successfully");
-    setDeletingExam(null);
+
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setExams(exams.filter(e => e.id !== deletingExam.id));
+      toast.success("Examination entry deleted successfully");
+      setDeletingExam(null);
+      setSubmitting(false);
+      return;
+    }
+
+    const { error } = await api.examination.delete(deletingExam.id);
+    if (error) {
+      toast.error("Failed to delete examination entry");
+    } else {
+      await fetchExams();
+      toast.success("Examination entry deleted successfully");
+      setDeletingExam(null);
+    }
+    setSubmitting(false);
   };
 
   const getTypeBadge = (type: ExamNotice["type"]) => {
@@ -153,7 +232,6 @@ export default function AdminExamination() {
     }
   };
 
-  // Stats
   const stats = {
     total: exams.length,
     notices: exams.filter(e => e.type === "notice").length,
@@ -166,7 +244,10 @@ export default function AdminExamination() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Examination</h1>
-          <p className="text-muted-foreground">Manage exam notices, schedules, and forms</p>
+          <p className="text-muted-foreground">
+            Manage exam notices, schedules, and forms
+            {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+          </p>
         </div>
         <Button onClick={() => openDialog()}>
           <Plus className="mr-2 h-4 w-4" />
@@ -245,55 +326,61 @@ export default function AdminExamination() {
             <CardTitle>Examination Entries ({filteredExams.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>PDF</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredExams.map((exam) => (
-                  <TableRow key={exam.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getTypeIcon(exam.type)}
-                        <span className="font-medium">{exam.title}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{getTypeBadge(exam.type)}</TableCell>
-                    <TableCell>{exam.date}</TableCell>
-                    <TableCell>
-                      {exam.pdfUrl ? (
-                        <FileText className="h-4 w-4 text-primary" />
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openDialog(exam)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeletingExam(exam)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredExams.length === 0 && (
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      No examination entries found
-                    </TableCell>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>PDF</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredExams.map((exam) => (
+                    <TableRow key={exam.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getTypeIcon(exam.type)}
+                          <span className="font-medium">{exam.title}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{getTypeBadge(exam.type)}</TableCell>
+                      <TableCell>{exam.date}</TableCell>
+                      <TableCell>
+                        {exam.pdfUrl ? (
+                          <FileText className="h-4 w-4 text-primary" />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => openDialog(exam)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setDeletingExam(exam)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredExams.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        No examination entries found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -359,8 +446,11 @@ export default function AdminExamination() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingExam ? "Update" : "Add"}</Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editingExam ? "Update" : "Add"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -375,8 +465,11 @@ export default function AdminExamination() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

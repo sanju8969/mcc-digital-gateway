@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,9 +30,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, Upload, FileText, ExternalLink, GraduationCap } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, FileText, ExternalLink, GraduationCap, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
 interface Result {
   id: string;
@@ -45,7 +46,7 @@ interface Result {
   publishedAt: string;
 }
 
-const initialResults: Result[] = [
+const demoResults: Result[] = [
   { id: "1", title: "B.Sc Semester 4 Results", course: "BSc", semester: "Semester 4", year: "2024", status: "published", pdfUrl: "#", publishedAt: "2024-01-15" },
   { id: "2", title: "B.A Semester 4 Results", course: "BA", semester: "Semester 4", year: "2024", status: "published", pdfUrl: "#", publishedAt: "2024-01-14" },
   { id: "3", title: "B.Com Semester 4 Results", course: "BCom", semester: "Semester 4", year: "2024", status: "processing", publishedAt: "2024-01-13" },
@@ -57,8 +58,12 @@ const courses = ["All", "BA", "BSc", "BCom"];
 const semesters = ["Semester 1", "Semester 2", "Semester 3", "Semester 4", "Semester 5", "Semester 6", "Backlog"];
 const years = ["2024", "2023", "2022", "2021"];
 
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminResults() {
-  const [results, setResults] = useState<Result[]>(initialResults);
+  const [results, setResults] = useState<Result[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -73,6 +78,29 @@ export default function AdminResults() {
     status: "published" as Result["status"],
     pdfFile: null as File | null,
   });
+
+  useEffect(() => {
+    fetchResults();
+  }, []);
+
+  const fetchResults = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setResults(demoResults);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await api.results.getAll();
+    if (error) {
+      toast.error("Failed to fetch results");
+      setResults(demoResults);
+    } else {
+      setResults(data as Result[] || []);
+    }
+    setLoading(false);
+  };
 
   const filteredResults = results.filter((result) => {
     const matchesSearch = result.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -105,37 +133,91 @@ export default function AdminResults() {
     setIsDialogOpen(true);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.title || !formData.course || !formData.semester) {
       toast.error("Please fill in required fields");
       return;
     }
 
-    if (editingResult) {
-      setResults(results.map(r =>
-        r.id === editingResult.id
-          ? { ...r, ...formData, pdfUrl: formData.pdfFile ? "#" : r.pdfUrl }
-          : r
-      ));
-      toast.success("Result updated successfully");
-    } else {
-      const newResult: Result = {
-        id: Date.now().toString(),
-        ...formData,
-        pdfUrl: formData.pdfFile ? "#" : undefined,
-        publishedAt: new Date().toISOString().split("T")[0],
-      };
-      setResults([newResult, ...results]);
-      toast.success("Result uploaded successfully");
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingResult) {
+        setResults(results.map(r =>
+          r.id === editingResult.id
+            ? { ...r, ...formData, pdfUrl: formData.pdfFile ? "#" : r.pdfUrl }
+            : r
+        ));
+        toast.success("Result updated successfully");
+      } else {
+        const newResult: Result = {
+          id: Date.now().toString(),
+          ...formData,
+          pdfUrl: formData.pdfFile ? "#" : undefined,
+          publishedAt: new Date().toISOString().split("T")[0],
+        };
+        setResults([newResult, ...results]);
+        toast.success("Result uploaded successfully");
+      }
+      setIsDialogOpen(false);
+      setSubmitting(false);
+      return;
     }
-    setIsDialogOpen(false);
+
+    const payload = {
+      title: formData.title,
+      course: formData.course,
+      semester: formData.semester,
+      year: formData.year,
+      status: formData.status,
+    };
+
+    if (editingResult) {
+      const { error } = await api.results.update(editingResult.id, payload);
+      if (error) {
+        toast.error("Failed to update result");
+      } else {
+        await fetchResults();
+        toast.success("Result updated successfully");
+        setIsDialogOpen(false);
+      }
+    } else {
+      const { error } = await api.results.create(payload);
+      if (error) {
+        toast.error("Failed to upload result");
+      } else {
+        await fetchResults();
+        toast.success("Result uploaded successfully");
+        setIsDialogOpen(false);
+      }
+    }
+    setSubmitting(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deletingResult) return;
-    setResults(results.filter(r => r.id !== deletingResult.id));
-    toast.success("Result deleted successfully");
-    setDeletingResult(null);
+
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setResults(results.filter(r => r.id !== deletingResult.id));
+      toast.success("Result deleted successfully");
+      setDeletingResult(null);
+      setSubmitting(false);
+      return;
+    }
+
+    const { error } = await api.results.delete(deletingResult.id);
+    if (error) {
+      toast.error("Failed to delete result");
+    } else {
+      await fetchResults();
+      toast.success("Result deleted successfully");
+      setDeletingResult(null);
+    }
+    setSubmitting(false);
   };
 
   const stats = {
@@ -149,7 +231,10 @@ export default function AdminResults() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Results</h1>
-          <p className="text-muted-foreground">Manage examination results and publish PDFs</p>
+          <p className="text-muted-foreground">
+            Manage examination results and publish PDFs
+            {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+          </p>
         </div>
         <Button onClick={() => openDialog()}>
           <Plus className="mr-2 h-4 w-4" />
@@ -253,57 +338,63 @@ export default function AdminResults() {
             <CardTitle>All Results ({filteredResults.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Semester</TableHead>
-                  <TableHead>Year</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Published</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredResults.map((result) => (
-                  <TableRow key={result.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-primary" />
-                        <span className="font-medium">{result.title}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell><Badge variant="secondary">{result.course}</Badge></TableCell>
-                    <TableCell>{result.semester}</TableCell>
-                    <TableCell>{result.year}</TableCell>
-                    <TableCell>
-                      <Badge variant={result.status === "published" ? "default" : "outline"}>
-                        {result.status === "published" ? "Published" : "Processing"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{result.publishedAt}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openDialog(result)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => setDeletingResult(result)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredResults.length === 0 && (
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      No results found
-                    </TableCell>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Course</TableHead>
+                    <TableHead>Semester</TableHead>
+                    <TableHead>Year</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Published</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredResults.map((result) => (
+                    <TableRow key={result.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4 text-primary" />
+                          <span className="font-medium">{result.title}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell><Badge variant="secondary">{result.course}</Badge></TableCell>
+                      <TableCell>{result.semester}</TableCell>
+                      <TableCell>{result.year}</TableCell>
+                      <TableCell>
+                        <Badge variant={result.status === "published" ? "default" : "outline"}>
+                          {result.status === "published" ? "Published" : "Processing"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{result.publishedAt}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => openDialog(result)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => setDeletingResult(result)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredResults.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        No results found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -395,8 +486,11 @@ export default function AdminResults() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingResult ? "Update" : "Upload"}</Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editingResult ? "Update" : "Upload"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -411,8 +505,11 @@ export default function AdminResults() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -33,9 +32,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, Upload, FileText, Eye, EyeOff } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, FileText, Eye, EyeOff, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
 interface Notice {
   id: string;
@@ -46,8 +46,8 @@ interface Notice {
   published: boolean;
 }
 
-// Mock data - replace with API calls
-const initialNotices: Notice[] = [
+// Demo data for when API is not available
+const demoNotices: Notice[] = [
   { id: "1", title: "Admission Notice 2024-25", category: "Admission", date: "2024-01-15", pdfUrl: "#", published: true },
   { id: "2", title: "Semester Examination Schedule", category: "Examination", date: "2024-01-10", pdfUrl: "#", published: true },
   { id: "3", title: "Holiday Notice - Republic Day", category: "General", date: "2024-01-08", published: true },
@@ -57,8 +57,13 @@ const initialNotices: Notice[] = [
 
 const categories = ["General", "Admission", "Examination", "Academic", "Administrative", "Sports", "Cultural"];
 
+// Check if demo mode is active
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminNotices() {
-  const [notices, setNotices] = useState<Notice[]>(initialNotices);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -66,7 +71,6 @@ export default function AdminNotices() {
   const [editingNotice, setEditingNotice] = useState<Notice | null>(null);
   const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null);
   
-  // Form state
   const [formData, setFormData] = useState({
     title: "",
     category: "",
@@ -74,6 +78,30 @@ export default function AdminNotices() {
     pdfFile: null as File | null,
     published: true,
   });
+
+  // Fetch notices on mount
+  useEffect(() => {
+    fetchNotices();
+  }, []);
+
+  const fetchNotices = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setNotices(demoNotices);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await api.notices.getAll();
+    if (error) {
+      toast.error("Failed to fetch notices");
+      setNotices(demoNotices); // Fallback to demo data
+    } else {
+      setNotices(data as Notice[] || []);
+    }
+    setLoading(false);
+  };
 
   const filteredNotices = notices.filter((notice) => {
     const matchesSearch = notice.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -111,58 +139,106 @@ export default function AdminNotices() {
       return;
     }
 
-    // TODO: Replace with actual API call
-    // const formDataToSend = new FormData();
-    // formDataToSend.append('title', formData.title);
-    // formDataToSend.append('category', formData.category);
-    // formDataToSend.append('date', formData.date);
-    // formDataToSend.append('published', formData.published.toString());
-    // if (formData.pdfFile) formDataToSend.append('pdf', formData.pdfFile);
-    // await api.notices.create(formDataToSend) or api.notices.update(id, formDataToSend);
+    setSubmitting(true);
 
-    if (editingNotice) {
-      setNotices(notices.map((n) =>
-        n.id === editingNotice.id
-          ? { ...n, title: formData.title, category: formData.category, date: formData.date, published: formData.published }
-          : n
-      ));
-      toast.success("Notice updated successfully");
-    } else {
-      const newNotice: Notice = {
-        id: Date.now().toString(),
-        title: formData.title,
-        category: formData.category,
-        date: formData.date,
-        pdfUrl: formData.pdfFile ? "#" : undefined,
-        published: formData.published,
-      };
-      setNotices([newNotice, ...notices]);
-      toast.success("Notice created successfully");
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingNotice) {
+        setNotices(notices.map((n) =>
+          n.id === editingNotice.id
+            ? { ...n, title: formData.title, category: formData.category, date: formData.date, published: formData.published }
+            : n
+        ));
+        toast.success("Notice updated successfully");
+      } else {
+        const newNotice: Notice = {
+          id: Date.now().toString(),
+          title: formData.title,
+          category: formData.category,
+          date: formData.date,
+          pdfUrl: formData.pdfFile ? "#" : undefined,
+          published: formData.published,
+        };
+        setNotices([newNotice, ...notices]);
+        toast.success("Notice created successfully");
+      }
+      setIsDialogOpen(false);
+      setSubmitting(false);
+      return;
     }
 
-    setIsDialogOpen(false);
+    const payload = {
+      title: formData.title,
+      category: formData.category,
+      date: formData.date,
+      published: formData.published,
+    };
+
+    if (editingNotice) {
+      const { error } = await api.notices.update(editingNotice.id, payload);
+      if (error) {
+        toast.error("Failed to update notice");
+      } else {
+        await fetchNotices();
+        toast.success("Notice updated successfully");
+        setIsDialogOpen(false);
+      }
+    } else {
+      const { error } = await api.notices.create(payload);
+      if (error) {
+        toast.error("Failed to create notice");
+      } else {
+        await fetchNotices();
+        toast.success("Notice created successfully");
+        setIsDialogOpen(false);
+      }
+    }
+    setSubmitting(false);
   };
 
   const handleDelete = async () => {
     if (!deletingNotice) return;
 
-    // TODO: Replace with actual API call
-    // await api.notices.delete(deletingNotice.id);
+    setSubmitting(true);
 
-    setNotices(notices.filter((n) => n.id !== deletingNotice.id));
-    toast.success("Notice deleted successfully");
-    setIsDeleteDialogOpen(false);
-    setDeletingNotice(null);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setNotices(notices.filter((n) => n.id !== deletingNotice.id));
+      toast.success("Notice deleted successfully");
+      setIsDeleteDialogOpen(false);
+      setDeletingNotice(null);
+      setSubmitting(false);
+      return;
+    }
+
+    const { error } = await api.notices.delete(deletingNotice.id);
+    if (error) {
+      toast.error("Failed to delete notice");
+    } else {
+      await fetchNotices();
+      toast.success("Notice deleted successfully");
+      setIsDeleteDialogOpen(false);
+      setDeletingNotice(null);
+    }
+    setSubmitting(false);
   };
 
   const togglePublish = async (notice: Notice) => {
-    // TODO: Replace with actual API call
-    // await api.notices.update(notice.id, { published: !notice.published });
+    if (DEMO_MODE) {
+      setNotices(notices.map((n) =>
+        n.id === notice.id ? { ...n, published: !n.published } : n
+      ));
+      toast.success(notice.published ? "Notice unpublished" : "Notice published");
+      return;
+    }
 
-    setNotices(notices.map((n) =>
-      n.id === notice.id ? { ...n, published: !n.published } : n
-    ));
-    toast.success(notice.published ? "Notice unpublished" : "Notice published");
+    const { error } = await api.notices.update(notice.id, { published: !notice.published });
+    if (error) {
+      toast.error("Failed to update notice");
+    } else {
+      await fetchNotices();
+      toast.success(notice.published ? "Notice unpublished" : "Notice published");
+    }
   };
 
   return (
@@ -170,7 +246,10 @@ export default function AdminNotices() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Notices</h1>
-          <p className="text-muted-foreground">Manage all notices and announcements</p>
+          <p className="text-muted-foreground">
+            Manage all notices and announcements
+            {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+          </p>
         </div>
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
@@ -217,81 +296,87 @@ export default function AdminNotices() {
             <CardDescription>Click on a notice to edit or delete it</CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>PDF</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredNotices.map((notice) => (
-                  <TableRow key={notice.id}>
-                    <TableCell className="font-medium">{notice.title}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{notice.category}</Badge>
-                    </TableCell>
-                    <TableCell>{notice.date}</TableCell>
-                    <TableCell>
-                      {notice.pdfUrl ? (
-                        <FileText className="h-4 w-4 text-primary" />
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={notice.published ? "default" : "outline"}>
-                        {notice.published ? "Published" : "Draft"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => togglePublish(notice)}
-                          title={notice.published ? "Unpublish" : "Publish"}
-                        >
-                          {notice.published ? (
-                            <EyeOff className="h-4 w-4" />
-                          ) : (
-                            <Eye className="h-4 w-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditDialog(notice)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setDeletingNotice(notice);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredNotices.length === 0 && (
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      No notices found
-                    </TableCell>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>PDF</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredNotices.map((notice) => (
+                    <TableRow key={notice.id}>
+                      <TableCell className="font-medium">{notice.title}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{notice.category}</Badge>
+                      </TableCell>
+                      <TableCell>{notice.date}</TableCell>
+                      <TableCell>
+                        {notice.pdfUrl ? (
+                          <FileText className="h-4 w-4 text-primary" />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={notice.published ? "default" : "outline"}>
+                          {notice.published ? "Published" : "Draft"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => togglePublish(notice)}
+                            title={notice.published ? "Unpublish" : "Publish"}
+                          >
+                            {notice.published ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditDialog(notice)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setDeletingNotice(notice);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredNotices.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No notices found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -366,10 +451,11 @@ export default function AdminNotices() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit}>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {editingNotice ? "Update Notice" : "Create Notice"}
             </Button>
           </DialogFooter>
@@ -386,8 +472,9 @@ export default function AdminNotices() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

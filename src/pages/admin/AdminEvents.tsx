@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,9 +33,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Edit, Trash2, Upload, Image as ImageIcon, Eye, EyeOff } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Image as ImageIcon, Eye, EyeOff, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
 interface Event {
   id: string;
@@ -47,7 +48,7 @@ interface Event {
   published: boolean;
 }
 
-const initialEvents: Event[] = [
+const demoEvents: Event[] = [
   { id: "1", title: "Annual Sports Day 2024", description: "Join us for the annual sports day celebration.", type: "event", date: "2024-02-15", imageUrl: "#", published: true },
   { id: "2", title: "New Computer Lab Inaugurated", description: "State-of-the-art computer lab with 50 systems.", type: "news", date: "2024-01-20", imageUrl: "#", published: true },
   { id: "3", title: "Tender for Furniture Supply", description: "Sealed tenders invited for classroom furniture.", type: "tender", date: "2024-01-18", published: true },
@@ -62,8 +63,12 @@ const eventTypes = [
   { value: "press", label: "Press" },
 ];
 
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminEvents() {
-  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -79,6 +84,29 @@ export default function AdminEvents() {
     imageFile: null as File | null,
     published: true,
   });
+
+  useEffect(() => {
+    fetchEvents();
+  }, []);
+
+  const fetchEvents = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setEvents(demoEvents);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await api.events.getAll();
+    if (error) {
+      toast.error("Failed to fetch events");
+      setEvents(demoEvents);
+    } else {
+      setEvents(data as Event[] || []);
+    }
+    setLoading(false);
+  };
 
   const filteredEvents = events.filter((event) => {
     const matchesSearch = event.title.toLowerCase().includes(searchQuery.toLowerCase());
@@ -118,46 +146,108 @@ export default function AdminEvents() {
       return;
     }
 
-    // TODO: Replace with actual API call
+    setSubmitting(true);
 
-    if (editingEvent) {
-      setEvents(events.map((e) =>
-        e.id === editingEvent.id
-          ? { ...e, title: formData.title, description: formData.description, type: formData.type, date: formData.date, published: formData.published }
-          : e
-      ));
-      toast.success("Event updated successfully");
-    } else {
-      const newEvent: Event = {
-        id: Date.now().toString(),
-        title: formData.title,
-        description: formData.description,
-        type: formData.type,
-        date: formData.date,
-        imageUrl: formData.imageFile ? "#" : undefined,
-        published: formData.published,
-      };
-      setEvents([newEvent, ...events]);
-      toast.success("Event created successfully");
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingEvent) {
+        setEvents(events.map((e) =>
+          e.id === editingEvent.id
+            ? { ...e, title: formData.title, description: formData.description, type: formData.type, date: formData.date, published: formData.published }
+            : e
+        ));
+        toast.success("Event updated successfully");
+      } else {
+        const newEvent: Event = {
+          id: Date.now().toString(),
+          title: formData.title,
+          description: formData.description,
+          type: formData.type,
+          date: formData.date,
+          imageUrl: formData.imageFile ? "#" : undefined,
+          published: formData.published,
+        };
+        setEvents([newEvent, ...events]);
+        toast.success("Event created successfully");
+      }
+      setIsDialogOpen(false);
+      setSubmitting(false);
+      return;
     }
 
-    setIsDialogOpen(false);
+    const payload = {
+      title: formData.title,
+      description: formData.description,
+      type: formData.type,
+      date: formData.date,
+      published: formData.published,
+    };
+
+    if (editingEvent) {
+      const { error } = await api.events.update(editingEvent.id, payload);
+      if (error) {
+        toast.error("Failed to update event");
+      } else {
+        await fetchEvents();
+        toast.success("Event updated successfully");
+        setIsDialogOpen(false);
+      }
+    } else {
+      const { error } = await api.events.create(payload);
+      if (error) {
+        toast.error("Failed to create event");
+      } else {
+        await fetchEvents();
+        toast.success("Event created successfully");
+        setIsDialogOpen(false);
+      }
+    }
+    setSubmitting(false);
   };
 
   const handleDelete = async () => {
     if (!deletingEvent) return;
 
-    setEvents(events.filter((e) => e.id !== deletingEvent.id));
-    toast.success("Event deleted successfully");
-    setIsDeleteDialogOpen(false);
-    setDeletingEvent(null);
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setEvents(events.filter((e) => e.id !== deletingEvent.id));
+      toast.success("Event deleted successfully");
+      setIsDeleteDialogOpen(false);
+      setDeletingEvent(null);
+      setSubmitting(false);
+      return;
+    }
+
+    const { error } = await api.events.delete(deletingEvent.id);
+    if (error) {
+      toast.error("Failed to delete event");
+    } else {
+      await fetchEvents();
+      toast.success("Event deleted successfully");
+      setIsDeleteDialogOpen(false);
+      setDeletingEvent(null);
+    }
+    setSubmitting(false);
   };
 
   const togglePublish = async (event: Event) => {
-    setEvents(events.map((e) =>
-      e.id === event.id ? { ...e, published: !e.published } : e
-    ));
-    toast.success(event.published ? "Event unpublished" : "Event published");
+    if (DEMO_MODE) {
+      setEvents(events.map((e) =>
+        e.id === event.id ? { ...e, published: !e.published } : e
+      ));
+      toast.success(event.published ? "Event unpublished" : "Event published");
+      return;
+    }
+
+    const { error } = await api.events.update(event.id, { published: !event.published });
+    if (error) {
+      toast.error("Failed to update event");
+    } else {
+      await fetchEvents();
+      toast.success(event.published ? "Event unpublished" : "Event published");
+    }
   };
 
   const getTypeBadgeVariant = (type: Event["type"]) => {
@@ -175,7 +265,10 @@ export default function AdminEvents() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Events & News</h1>
-          <p className="text-muted-foreground">Manage events, news, tenders, and press releases</p>
+          <p className="text-muted-foreground">
+            Manage events, news, tenders, and press releases
+            {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+          </p>
         </div>
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
@@ -222,79 +315,85 @@ export default function AdminEvents() {
             <CardDescription>These items appear in the "Latest Updates" section on the homepage</CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEvents.map((event) => (
-                  <TableRow key={event.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{event.title}</p>
-                        <p className="text-sm text-muted-foreground line-clamp-1">{event.description}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={getTypeBadgeVariant(event.type)}>
-                        {eventTypes.find(t => t.value === event.type)?.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{event.date}</TableCell>
-                    <TableCell>
-                      {event.imageUrl ? (
-                        <ImageIcon className="h-4 w-4 text-primary" />
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={event.published ? "default" : "outline"}>
-                        {event.published ? "Published" : "Draft"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => togglePublish(event)}
-                        >
-                          {event.published ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(event)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setDeletingEvent(event);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredEvents.length === 0 && (
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      No events found
-                    </TableCell>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Image</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredEvents.map((event) => (
+                    <TableRow key={event.id}>
+                      <TableCell>
+                        <div>
+                          <p className="font-medium">{event.title}</p>
+                          <p className="text-sm text-muted-foreground line-clamp-1">{event.description}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getTypeBadgeVariant(event.type)}>
+                          {eventTypes.find(t => t.value === event.type)?.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{event.date}</TableCell>
+                      <TableCell>
+                        {event.imageUrl ? (
+                          <ImageIcon className="h-4 w-4 text-primary" />
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={event.published ? "default" : "outline"}>
+                          {event.published ? "Published" : "Draft"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => togglePublish(event)}
+                          >
+                            {event.published ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(event)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setDeletingEvent(event);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredEvents.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No events found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -378,8 +477,11 @@ export default function AdminEvents() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingEvent ? "Update" : "Create"}</Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editingEvent ? "Update" : "Create"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -394,8 +496,9 @@ export default function AdminEvents() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

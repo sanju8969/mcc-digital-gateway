@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,12 +29,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Plus, Search, Edit, Trash2, Upload, Users } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Users, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
 interface FacultyMember {
   id: string;
@@ -48,7 +49,7 @@ interface FacultyMember {
   type: "teaching" | "non-teaching";
 }
 
-const initialFaculty: FacultyMember[] = [
+const demoFaculty: FacultyMember[] = [
   { id: "1", name: "Dr. Rajesh Kumar", department: "Physics", designation: "Associate Professor & HOD", qualification: "Ph.D. in Physics", email: "rajesh@mcc.edu.in", type: "teaching" },
   { id: "2", name: "Dr. Sunita Devi", department: "Chemistry", designation: "Assistant Professor", qualification: "Ph.D. in Chemistry", email: "sunita@mcc.edu.in", type: "teaching" },
   { id: "3", name: "Prof. Amit Singh", department: "Mathematics", designation: "Professor & HOD", qualification: "M.Sc., Ph.D.", email: "amit@mcc.edu.in", type: "teaching" },
@@ -59,8 +60,12 @@ const initialFaculty: FacultyMember[] = [
 const departments = ["Physics", "Chemistry", "Mathematics", "English", "Hindi", "History", "Political Science", "Economics", "Commerce", "Botany", "Zoology", "Administration", "Library", "Accounts"];
 const designations = ["Professor", "Associate Professor", "Assistant Professor", "HOD", "Lecturer", "Lab Assistant", "Head Clerk", "Clerk", "Librarian", "Accountant", "Peon", "Security"];
 
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminFaculty() {
-  const [faculty, setFaculty] = useState<FacultyMember[]>(initialFaculty);
+  const [faculty, setFaculty] = useState<FacultyMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
@@ -79,6 +84,29 @@ export default function AdminFaculty() {
     photoFile: null as File | null,
     type: "teaching" as FacultyMember["type"],
   });
+
+  useEffect(() => {
+    fetchFaculty();
+  }, []);
+
+  const fetchFaculty = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setFaculty(demoFaculty);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await api.faculty.getAll();
+    if (error) {
+      toast.error("Failed to fetch faculty");
+      setFaculty(demoFaculty);
+    } else {
+      setFaculty(data as FacultyMember[] || []);
+    }
+    setLoading(false);
+  };
 
   const filteredFaculty = faculty.filter((member) => {
     const matchesSearch = member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -124,33 +152,89 @@ export default function AdminFaculty() {
       return;
     }
 
-    if (editingMember) {
-      setFaculty(faculty.map((m) =>
-        m.id === editingMember.id
-          ? { ...m, ...formData, phone: formData.phone || undefined }
-          : m
-      ));
-      toast.success("Faculty member updated successfully");
-    } else {
-      const newMember: FacultyMember = {
-        id: Date.now().toString(),
-        ...formData,
-        phone: formData.phone || undefined,
-        photoUrl: formData.photoFile ? "#" : undefined,
-      };
-      setFaculty([newMember, ...faculty]);
-      toast.success("Faculty member added successfully");
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingMember) {
+        setFaculty(faculty.map((m) =>
+          m.id === editingMember.id
+            ? { ...m, ...formData, phone: formData.phone || undefined }
+            : m
+        ));
+        toast.success("Faculty member updated successfully");
+      } else {
+        const newMember: FacultyMember = {
+          id: Date.now().toString(),
+          ...formData,
+          phone: formData.phone || undefined,
+          photoUrl: formData.photoFile ? "#" : undefined,
+        };
+        setFaculty([newMember, ...faculty]);
+        toast.success("Faculty member added successfully");
+      }
+      setIsDialogOpen(false);
+      setSubmitting(false);
+      return;
     }
 
-    setIsDialogOpen(false);
+    const payload = {
+      name: formData.name,
+      department: formData.department,
+      designation: formData.designation,
+      qualification: formData.qualification,
+      email: formData.email,
+      phone: formData.phone || undefined,
+      type: formData.type,
+    };
+
+    if (editingMember) {
+      const { error } = await api.faculty.update(editingMember.id, payload);
+      if (error) {
+        toast.error("Failed to update faculty member");
+      } else {
+        await fetchFaculty();
+        toast.success("Faculty member updated successfully");
+        setIsDialogOpen(false);
+      }
+    } else {
+      const { error } = await api.faculty.create(payload);
+      if (error) {
+        toast.error("Failed to add faculty member");
+      } else {
+        await fetchFaculty();
+        toast.success("Faculty member added successfully");
+        setIsDialogOpen(false);
+      }
+    }
+    setSubmitting(false);
   };
 
   const handleDelete = async () => {
     if (!deletingMember) return;
-    setFaculty(faculty.filter((m) => m.id !== deletingMember.id));
-    toast.success("Faculty member deleted successfully");
-    setIsDeleteDialogOpen(false);
-    setDeletingMember(null);
+
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setFaculty(faculty.filter((m) => m.id !== deletingMember.id));
+      toast.success("Faculty member deleted successfully");
+      setIsDeleteDialogOpen(false);
+      setDeletingMember(null);
+      setSubmitting(false);
+      return;
+    }
+
+    const { error } = await api.faculty.delete(deletingMember.id);
+    if (error) {
+      toast.error("Failed to delete faculty member");
+    } else {
+      await fetchFaculty();
+      toast.success("Faculty member deleted successfully");
+      setIsDeleteDialogOpen(false);
+      setDeletingMember(null);
+    }
+    setSubmitting(false);
   };
 
   const getInitials = (name: string) => {
@@ -162,7 +246,10 @@ export default function AdminFaculty() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Faculty & Staff</h1>
-          <p className="text-muted-foreground">Manage teaching and non-teaching staff</p>
+          <p className="text-muted-foreground">
+            Manage teaching and non-teaching staff
+            {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+          </p>
         </div>
         <Button onClick={openCreateDialog}>
           <Plus className="mr-2 h-4 w-4" />
@@ -258,68 +345,74 @@ export default function AdminFaculty() {
             <CardTitle>All Faculty & Staff ({filteredFaculty.length})</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Designation</TableHead>
-                  <TableHead>Qualification</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredFaculty.map((member) => (
-                  <TableRow key={member.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarImage src={member.photoUrl} />
-                          <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium">{member.name}</p>
-                          <p className="text-sm text-muted-foreground">{member.email}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{member.department}</TableCell>
-                    <TableCell>{member.designation}</TableCell>
-                    <TableCell>{member.qualification}</TableCell>
-                    <TableCell>
-                      <Badge variant={member.type === "teaching" ? "default" : "secondary"}>
-                        {member.type === "teaching" ? "Teaching" : "Non-Teaching"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEditDialog(member)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setDeletingMember(member);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredFaculty.length === 0 && (
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      No faculty members found
-                    </TableCell>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Designation</TableHead>
+                    <TableHead>Qualification</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredFaculty.map((member) => (
+                    <TableRow key={member.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarImage src={member.photoUrl} />
+                            <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-medium">{member.name}</p>
+                            <p className="text-sm text-muted-foreground">{member.email}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{member.department}</TableCell>
+                      <TableCell>{member.designation}</TableCell>
+                      <TableCell>{member.qualification}</TableCell>
+                      <TableCell>
+                        <Badge variant={member.type === "teaching" ? "default" : "secondary"}>
+                          {member.type === "teaching" ? "Teaching" : "Non-Teaching"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(member)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setDeletingMember(member);
+                              setIsDeleteDialogOpen(true);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {filteredFaculty.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        No faculty members found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -439,8 +532,11 @@ export default function AdminFaculty() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSubmit}>{editingMember ? "Update" : "Add Member"}</Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editingMember ? "Update" : "Add"} Member
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -449,14 +545,15 @@ export default function AdminFaculty() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete Faculty Member?</AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently delete "{deletingMember?.name}". This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

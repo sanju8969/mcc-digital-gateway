@@ -1,32 +1,91 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, FileText } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Save, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
-const initialPages = {
+interface PageContent {
+  title: string;
+  content: string;
+}
+
+const demoPages: Record<string, PageContent> = {
   home: { title: "Home", content: "Welcome to Model College, Chatra..." },
   about: { title: "About Us", content: "Model College, Chatra is a premier institution..." },
   vision: { title: "Vision & Mission", content: "To provide quality education..." },
   principal: { title: "Principal's Message", content: "Dear Students and Parents..." },
 };
 
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminPages() {
-  const [pages, setPages] = useState(initialPages);
+  const [pages, setPages] = useState<Record<string, PageContent>>(demoPages);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("home");
 
-  const handleSave = (pageKey: string) => {
-    // TODO: API call to save page content
-    toast.success(`${pages[pageKey as keyof typeof pages].title} content saved`);
+  useEffect(() => {
+    fetchPages();
+  }, []);
+
+  const fetchPages = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setPages(demoPages);
+      setLoading(false);
+      return;
+    }
+
+    const { data, error } = await api.pages.getAll();
+    if (error) {
+      toast.error("Failed to fetch pages");
+      setPages(demoPages);
+    } else {
+      setPages(data as Record<string, PageContent> || demoPages);
+    }
+    setLoading(false);
   };
+
+  const handleSave = async (pageKey: string) => {
+    setSaving(pageKey);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      toast.success(`${pages[pageKey].title} content saved`);
+      setSaving(null);
+      return;
+    }
+
+    const { error } = await api.pages.update(pageKey, { content: pages[pageKey].content });
+    if (error) {
+      toast.error("Failed to save page content");
+    } else {
+      toast.success(`${pages[pageKey].title} content saved`);
+    }
+    setSaving(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Pages Content</h1>
-        <p className="text-muted-foreground">Edit website page content using rich text</p>
+        <p className="text-muted-foreground">
+          Edit website page content using rich text
+          {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+        </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -54,8 +113,12 @@ export default function AdminPages() {
                   placeholder="Enter page content..."
                   className="font-mono"
                 />
-                <Button onClick={() => handleSave(key)}>
-                  <Save className="mr-2 h-4 w-4" />
+                <Button onClick={() => handleSave(key)} disabled={saving === key}>
+                  {saving === key ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="mr-2 h-4 w-4" />
+                  )}
                   Save Changes
                 </Button>
               </CardContent>

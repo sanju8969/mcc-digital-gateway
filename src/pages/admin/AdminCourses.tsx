@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -33,9 +32,10 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, Edit, Trash2, Upload, FileText, BookOpen, GraduationCap } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, FileText, BookOpen, GraduationCap, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { api } from "@/hooks/useApi";
 
 interface Course {
   id: string;
@@ -56,13 +56,13 @@ interface Syllabus {
   uploadedAt: string;
 }
 
-const initialCourses: Course[] = [
+const demoCourses: Course[] = [
   { id: "1", name: "Bachelor of Arts (BA)", code: "BA", duration: "3 Years", description: "Undergraduate program in Arts and Humanities", subjects: ["English", "Hindi", "History", "Political Science", "Economics"] },
   { id: "2", name: "Bachelor of Science (BSc)", code: "BSC", duration: "3 Years", description: "Undergraduate program in Science", subjects: ["Physics", "Chemistry", "Mathematics", "Botany", "Zoology"] },
   { id: "3", name: "Bachelor of Commerce (BCom)", code: "BCOM", duration: "3 Years", description: "Undergraduate program in Commerce", subjects: ["Accountancy", "Business Studies", "Economics", "Taxation", "Business Law"] },
 ];
 
-const initialSyllabus: Syllabus[] = [
+const demoSyllabus: Syllabus[] = [
   { id: "1", courseId: "1", courseName: "BA", semester: "Semester 1", title: "BA Sem-1 Syllabus 2024", pdfUrl: "#", uploadedAt: "2024-01-10" },
   { id: "2", courseId: "1", courseName: "BA", semester: "Semester 2", title: "BA Sem-2 Syllabus 2024", pdfUrl: "#", uploadedAt: "2024-01-10" },
   { id: "3", courseId: "2", courseName: "BSc", semester: "Semester 1", title: "BSc Sem-1 Syllabus 2024", pdfUrl: "#", uploadedAt: "2024-01-10" },
@@ -71,13 +71,16 @@ const initialSyllabus: Syllabus[] = [
 
 const semesters = ["Semester 1", "Semester 2", "Semester 3", "Semester 4", "Semester 5", "Semester 6"];
 
+const DEMO_MODE = !import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE_URL === '/api';
+
 export default function AdminCourses() {
-  const [courses, setCourses] = useState<Course[]>(initialCourses);
-  const [syllabus, setSyllabus] = useState<Syllabus[]>(initialSyllabus);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [syllabus, setSyllabus] = useState<Syllabus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("courses");
   const [searchQuery, setSearchQuery] = useState("");
   
-  // Course dialog
   const [isCourseDialogOpen, setIsCourseDialogOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [courseFormData, setCourseFormData] = useState({
@@ -88,7 +91,6 @@ export default function AdminCourses() {
     subjects: "",
   });
 
-  // Syllabus dialog
   const [isSyllabusDialogOpen, setIsSyllabusDialogOpen] = useState(false);
   const [editingSyllabus, setEditingSyllabus] = useState<Syllabus | null>(null);
   const [syllabusFormData, setSyllabusFormData] = useState({
@@ -98,9 +100,33 @@ export default function AdminCourses() {
     pdfFile: null as File | null,
   });
 
-  // Delete dialogs
   const [deletingCourse, setDeletingCourse] = useState<Course | null>(null);
   const [deletingSyllabus, setDeletingSyllabus] = useState<Syllabus | null>(null);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setCourses(demoCourses);
+      setSyllabus(demoSyllabus);
+      setLoading(false);
+      return;
+    }
+
+    const { data: coursesData, error: coursesError } = await api.courses.getAll();
+    if (coursesError) {
+      toast.error("Failed to fetch courses");
+      setCourses(demoCourses);
+      setSyllabus(demoSyllabus);
+    } else {
+      setCourses(coursesData as Course[] || []);
+    }
+    setLoading(false);
+  };
 
   const filteredCourses = courses.filter((course) =>
     course.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -111,7 +137,6 @@ export default function AdminCourses() {
     s.courseName.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Course handlers
   const openCourseDialog = (course?: Course) => {
     if (course) {
       setEditingCourse(course);
@@ -129,42 +154,88 @@ export default function AdminCourses() {
     setIsCourseDialogOpen(true);
   };
 
-  const handleCourseSubmit = () => {
+  const handleCourseSubmit = async () => {
     if (!courseFormData.name || !courseFormData.code) {
       toast.error("Please fill in required fields");
       return;
     }
 
+    setSubmitting(true);
     const subjectsArray = courseFormData.subjects.split(",").map(s => s.trim()).filter(Boolean);
 
-    if (editingCourse) {
-      setCourses(courses.map(c =>
-        c.id === editingCourse.id
-          ? { ...c, ...courseFormData, subjects: subjectsArray }
-          : c
-      ));
-      toast.success("Course updated successfully");
-    } else {
-      const newCourse: Course = {
-        id: Date.now().toString(),
-        ...courseFormData,
-        subjects: subjectsArray,
-      };
-      setCourses([...courses, newCourse]);
-      toast.success("Course added successfully");
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingCourse) {
+        setCourses(courses.map(c =>
+          c.id === editingCourse.id
+            ? { ...c, ...courseFormData, subjects: subjectsArray }
+            : c
+        ));
+        toast.success("Course updated successfully");
+      } else {
+        const newCourse: Course = {
+          id: Date.now().toString(),
+          ...courseFormData,
+          subjects: subjectsArray,
+        };
+        setCourses([...courses, newCourse]);
+        toast.success("Course added successfully");
+      }
+      setIsCourseDialogOpen(false);
+      setSubmitting(false);
+      return;
     }
-    setIsCourseDialogOpen(false);
+
+    const payload = { ...courseFormData, subjects: subjectsArray };
+
+    if (editingCourse) {
+      const { error } = await api.courses.update(editingCourse.id, payload);
+      if (error) {
+        toast.error("Failed to update course");
+      } else {
+        await fetchData();
+        toast.success("Course updated successfully");
+        setIsCourseDialogOpen(false);
+      }
+    } else {
+      const { error } = await api.courses.create(payload);
+      if (error) {
+        toast.error("Failed to add course");
+      } else {
+        await fetchData();
+        toast.success("Course added successfully");
+        setIsCourseDialogOpen(false);
+      }
+    }
+    setSubmitting(false);
   };
 
-  const handleDeleteCourse = () => {
+  const handleDeleteCourse = async () => {
     if (!deletingCourse) return;
-    setCourses(courses.filter(c => c.id !== deletingCourse.id));
-    setSyllabus(syllabus.filter(s => s.courseId !== deletingCourse.id));
-    toast.success("Course deleted successfully");
-    setDeletingCourse(null);
+
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setCourses(courses.filter(c => c.id !== deletingCourse.id));
+      setSyllabus(syllabus.filter(s => s.courseId !== deletingCourse.id));
+      toast.success("Course deleted successfully");
+      setDeletingCourse(null);
+      setSubmitting(false);
+      return;
+    }
+
+    const { error } = await api.courses.delete(deletingCourse.id);
+    if (error) {
+      toast.error("Failed to delete course");
+    } else {
+      await fetchData();
+      toast.success("Course deleted successfully");
+      setDeletingCourse(null);
+    }
+    setSubmitting(false);
   };
 
-  // Syllabus handlers
   const openSyllabusDialog = (item?: Syllabus) => {
     if (item) {
       setEditingSyllabus(item);
@@ -181,41 +252,65 @@ export default function AdminCourses() {
     setIsSyllabusDialogOpen(true);
   };
 
-  const handleSyllabusSubmit = () => {
+  const handleSyllabusSubmit = async () => {
     if (!syllabusFormData.courseId || !syllabusFormData.semester || !syllabusFormData.title) {
       toast.error("Please fill in required fields");
       return;
     }
 
+    setSubmitting(true);
     const course = courses.find(c => c.id === syllabusFormData.courseId);
-    if (!course) return;
-
-    if (editingSyllabus) {
-      setSyllabus(syllabus.map(s =>
-        s.id === editingSyllabus.id
-          ? { ...s, ...syllabusFormData, courseName: course.code }
-          : s
-      ));
-      toast.success("Syllabus updated successfully");
-    } else {
-      const newSyllabus: Syllabus = {
-        id: Date.now().toString(),
-        ...syllabusFormData,
-        courseName: course.code,
-        pdfUrl: "#",
-        uploadedAt: new Date().toISOString().split("T")[0],
-      };
-      setSyllabus([...syllabus, newSyllabus]);
-      toast.success("Syllabus uploaded successfully");
+    if (!course) {
+      setSubmitting(false);
+      return;
     }
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (editingSyllabus) {
+        setSyllabus(syllabus.map(s =>
+          s.id === editingSyllabus.id
+            ? { ...s, ...syllabusFormData, courseName: course.code }
+            : s
+        ));
+        toast.success("Syllabus updated successfully");
+      } else {
+        const newSyllabus: Syllabus = {
+          id: Date.now().toString(),
+          ...syllabusFormData,
+          courseName: course.code,
+          pdfUrl: "#",
+          uploadedAt: new Date().toISOString().split("T")[0],
+        };
+        setSyllabus([...syllabus, newSyllabus]);
+        toast.success("Syllabus uploaded successfully");
+      }
+      setIsSyllabusDialogOpen(false);
+      setSubmitting(false);
+      return;
+    }
+
+    // For real API, syllabus would be managed differently
     setIsSyllabusDialogOpen(false);
+    setSubmitting(false);
   };
 
-  const handleDeleteSyllabus = () => {
+  const handleDeleteSyllabus = async () => {
     if (!deletingSyllabus) return;
-    setSyllabus(syllabus.filter(s => s.id !== deletingSyllabus.id));
-    toast.success("Syllabus deleted successfully");
+
+    setSubmitting(true);
+
+    if (DEMO_MODE) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setSyllabus(syllabus.filter(s => s.id !== deletingSyllabus.id));
+      toast.success("Syllabus deleted successfully");
+      setDeletingSyllabus(null);
+      setSubmitting(false);
+      return;
+    }
+
     setDeletingSyllabus(null);
+    setSubmitting(false);
   };
 
   return (
@@ -223,7 +318,10 @@ export default function AdminCourses() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Courses & Syllabus</h1>
-          <p className="text-muted-foreground">Manage academic courses and syllabus documents</p>
+          <p className="text-muted-foreground">
+            Manage academic courses and syllabus documents
+            {DEMO_MODE && <Badge variant="outline" className="ml-2">Demo Mode</Badge>}
+          </p>
         </div>
       </div>
 
@@ -261,51 +359,57 @@ export default function AdminCourses() {
             </CardContent>
           </Card>
 
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {filteredCourses.map((course) => (
-                <Card key={course.id} className="relative group">
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="bg-primary/10 p-2 rounded-lg">
-                        <BookOpen className="h-5 w-5 text-primary" />
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {filteredCourses.map((course) => (
+                  <Card key={course.id} className="relative group">
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <div className="bg-primary/10 p-2 rounded-lg">
+                          <BookOpen className="h-5 w-5 text-primary" />
+                        </div>
+                        <Badge variant="secondary">{course.code}</Badge>
                       </div>
-                      <Badge variant="secondary">{course.code}</Badge>
-                    </div>
-                    <CardTitle className="text-lg">{course.name}</CardTitle>
-                    <CardDescription>{course.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div>
-                        <p className="text-sm font-medium">Duration</p>
-                        <p className="text-sm text-muted-foreground">{course.duration}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Subjects</p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {course.subjects.slice(0, 3).map((subject) => (
-                            <Badge key={subject} variant="outline" className="text-xs">{subject}</Badge>
-                          ))}
-                          {course.subjects.length > 3 && (
-                            <Badge variant="outline" className="text-xs">+{course.subjects.length - 3}</Badge>
-                          )}
+                      <CardTitle className="text-lg">{course.name}</CardTitle>
+                      <CardDescription>{course.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-sm font-medium">Duration</p>
+                          <p className="text-sm text-muted-foreground">{course.duration}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Subjects</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {course.subjects.slice(0, 3).map((subject) => (
+                              <Badge key={subject} variant="outline" className="text-xs">{subject}</Badge>
+                            ))}
+                            {course.subjects.length > 3 && (
+                              <Badge variant="outline" className="text-xs">+{course.subjects.length - 3}</Badge>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-4 pt-4 border-t">
-                      <Button variant="outline" size="sm" className="flex-1" onClick={() => openCourseDialog(course)}>
-                        <Edit className="h-4 w-4 mr-1" /> Edit
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => setDeletingCourse(course)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </motion.div>
+                      <div className="flex items-center gap-2 mt-4 pt-4 border-t">
+                        <Button variant="outline" size="sm" className="flex-1" onClick={() => openCourseDialog(course)}>
+                          <Edit className="h-4 w-4 mr-1" /> Edit
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setDeletingCourse(course)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </motion.div>
+          )}
         </TabsContent>
 
         {/* Syllabus Tab */}
@@ -324,58 +428,64 @@ export default function AdminCourses() {
             </CardContent>
           </Card>
 
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <Card>
-              <CardHeader>
-                <CardTitle>Syllabus Documents ({filteredSyllabus.length})</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Course</TableHead>
-                      <TableHead>Semester</TableHead>
-                      <TableHead>Uploaded</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredSyllabus.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-primary" />
-                            {item.title}
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant="secondary">{item.courseName}</Badge></TableCell>
-                        <TableCell>{item.semester}</TableCell>
-                        <TableCell>{item.uploadedAt}</TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button variant="ghost" size="icon" onClick={() => openSyllabusDialog(item)}>
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => setDeletingSyllabus(item)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {filteredSyllabus.length === 0 && (
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Syllabus Documents ({filteredSyllabus.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                          No syllabus documents found
-                        </TableCell>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Course</TableHead>
+                        <TableHead>Semester</TableHead>
+                        <TableHead>Uploaded</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </motion.div>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredSyllabus.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-primary" />
+                              {item.title}
+                            </div>
+                          </TableCell>
+                          <TableCell><Badge variant="secondary">{item.courseName}</Badge></TableCell>
+                          <TableCell>{item.semester}</TableCell>
+                          <TableCell>{item.uploadedAt}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button variant="ghost" size="icon" onClick={() => openSyllabusDialog(item)}>
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => setDeletingSyllabus(item)}>
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {filteredSyllabus.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            No syllabus documents found
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -432,8 +542,11 @@ export default function AdminCourses() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCourseDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleCourseSubmit}>{editingCourse ? "Update" : "Add"} Course</Button>
+            <Button variant="outline" onClick={() => setIsCourseDialogOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleCourseSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editingCourse ? "Update" : "Add"} Course
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -484,7 +597,7 @@ export default function AdminCourses() {
               />
             </div>
             <div className="space-y-2">
-              <Label>PDF File</Label>
+              <Label>PDF File *</Label>
               <div className="flex items-center gap-2">
                 <Input
                   type="file"
@@ -496,8 +609,11 @@ export default function AdminCourses() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSyllabusDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSyllabusSubmit}>{editingSyllabus ? "Update" : "Upload"}</Button>
+            <Button variant="outline" onClick={() => setIsSyllabusDialogOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button onClick={handleSyllabusSubmit} disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editingSyllabus ? "Update" : "Upload"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -508,12 +624,15 @@ export default function AdminCourses() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Course?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete "{deletingCourse?.name}" and all associated syllabus documents. This cannot be undone.
+              This will permanently delete "{deletingCourse?.name}" and all associated syllabus documents.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteCourse} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteCourse} className="bg-destructive text-destructive-foreground" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -528,8 +647,11 @@ export default function AdminCourses() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteSyllabus} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+            <AlertDialogCancel disabled={submitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSyllabus} className="bg-destructive text-destructive-foreground" disabled={submitting}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
